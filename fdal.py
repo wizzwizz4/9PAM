@@ -5,6 +5,10 @@ from io import TextIOBase
 
 ENTRY_SIZE = 8  # 8 bytes per entry
 
+class DBEntry:
+    # This has iadd for refcounts, maybe?
+    pass
+
 class Database:
     db_path: PathLike  # Recomomended to be the path to a sparse file.
     transaction_path: PathLike
@@ -29,14 +33,23 @@ class Database:
         return self
 
     def __exit__(self, type_, value, traceback):
+        suppress_exc = True
+
         self.db.flush()  # Just in case!
-        self.db.__exit__(type_, value, traceback)
+        suppress_exc &= self.db.__exit__(type_, value, traceback)
         os.close(self.db_fd)
 
-        self.transaction_file.__exit__(type_, value, traceback)
+        suppress_exc &= self.transaction_file.__exit__(type_, value, traceback)
+        return suppress_exc
 
     def __getitem__(self, index: int):
         # 0 isn't a valid index; it's where the header's stored.
         if not 0 < index < self.db.size() // ENTRY_SIZE:
             raise ValueError()
         raw = self.db[index * ENTRY_SIZE : (index + 1) * ENTRY_SIZE]
+        # Return a DBEntry instead!
+        return (
+            int.from_bytes(raw[0:2], byteorder='big')  # Refcount
+            int.from_bytes(raw[2:4], byteorder='big')  # Type / location
+            int.from_bytes(raw[4:8], byteorder='big')  # Type-specific ID
+        )
